@@ -1,14 +1,24 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Briefcase, Car, CarFront, Moon, ReceiptText, RotateCcw, Settings2, Sun, UserRound } from 'lucide-react'
 import { DEFAULT_INPUTS } from './engine/defaults'
-import { calculate, type Inputs, type Result } from './engine/model'
+import { EMPTY_DRAFT, missingRequired, toInputs, type Draft } from './engine/draft'
+import { calculate, type Result } from './engine/model'
 import { money } from './format'
 import { TAX_2026, type Propulsion, type TaxParams } from './engine/tax'
 import { Choice, Num, Section, Toggle } from './ui/fields'
 import { Results } from './ui/Results'
 import { TaxSettings } from './ui/TaxSettings'
 
-const STORE_KEY = 'carcalc.v1'
+const STORE_KEY = 'carcalc.v2'
+
+/** Example values shown as placeholders in empty fields. */
+const EX = {
+  p: DEFAULT_INPUTS.personal,
+  r: DEFAULT_INPUTS.reimb,
+  c: DEFAULT_INPUTS.company,
+  e: DEFAULT_INPUTS.existing,
+  u: DEFAULT_INPUTS.used,
+}
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -43,7 +53,14 @@ function save(key: string, value: unknown) {
 type Theme = 'auto' | 'light' | 'dark'
 
 /** Compact verdict pinned to the bottom on small screens, where results sit below the form. */
-function MobileBar({ result }: { result: Result }) {
+function MobileBar({ result, missing }: { result: Result; missing: number }) {
+  if (missing)
+    return (
+      <div className="mobile-bar">
+        <span>חסרים {missing} שדות חובה לחישוב</span>
+        <a href="#results">מה חסר?</a>
+      </div>
+    )
   const best = [...result.scenarios].sort((a, b) => a.total - b.total)[0]
   return (
     <div className="mobile-bar">
@@ -63,7 +80,7 @@ const PROPULSION: { value: Propulsion; label: string }[] = [
 ]
 
 export default function App() {
-  const [inputs, setInputs] = useState<Inputs>(() => load('inputs', DEFAULT_INPUTS))
+  const [inputs, setInputs] = useState<Draft>(() => load('inputs', EMPTY_DRAFT))
   const [tax, setTax] = useState<TaxParams>(() => load('tax', TAX_2026))
   const [theme, setTheme] = useState<Theme>(() => load('theme', 'auto' as Theme))
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -76,11 +93,12 @@ export default function App() {
     else document.documentElement.setAttribute('data-theme', theme)
   }, [theme])
 
-  const result = useMemo(() => calculate(inputs, tax), [inputs, tax])
+  const missing = missingRequired(inputs)
+  const result = useMemo(() => calculate(toInputs(inputs), tax), [inputs, tax])
 
   const upd =
-    <K extends keyof Inputs>(section: K) =>
-    (patch: Partial<Inputs[K]>) =>
+    <K extends keyof Draft>(section: K) =>
+    (patch: Partial<Draft[K]>) =>
       setInputs(prev => ({ ...prev, [section]: { ...prev[section], ...patch } }))
   const personal = upd('personal')
   const reimb = upd('reimb')
@@ -118,24 +136,24 @@ export default function App() {
       <main className="layout">
         <div className="form">
           <Section title="פרטים אישיים" icon={<UserRound size={18} />}>
-            <Num label="משכורת ברוטו חודשית" unit="₪" value={p.grossSalary} onChange={v => personal({ grossSalary: v })} hint="בלי אחזקת רכב ודמי נסיעות — אותם ממלאים בנפרד" />
-            <Num label="נקודות זיכוי" step={0.25} value={p.creditPoints} onChange={v => personal({ creditPoints: v })} hint="תושב: 2.25 · תושבת: 2.75 · ועוד לפי ילדים, תואר וכו׳" />
-            <Num label="נסועה שנתית" unit='ק"מ' step={1000} value={p.kmPerYear} onChange={v => personal({ kmPerYear: v })} />
-            <Num label="תשואה חלופית על הכסף" unit="%" step={0.5} value={p.altReturnPct} onChange={v => personal({ altReturnPct: v })} hint="כמה הכסף שתקוע ברכב היה מרוויח בהשקעה (שנתי, נטו)" />
-            <Num label="תקופת ההשוואה" unit="שנים" min={1} max={7} value={p.horizonYears} onChange={v => personal({ horizonYears: Math.min(7, Math.max(1, Math.round(v))) })} />
+            <Num label="משכורת ברוטו חודשית" unit="₪" value={p.grossSalary} example={EX.p.grossSalary} onChange={v => personal({ grossSalary: v })} hint="בלי אחזקת רכב ודמי נסיעות — אותם ממלאים בנפרד" />
+            <Num label="נקודות זיכוי" step={0.25} value={p.creditPoints} example={EX.p.creditPoints} onChange={v => personal({ creditPoints: v })} hint="תושב: 2.25 · תושבת: 2.75 · ועוד לפי ילדים, תואר וכו׳" />
+            <Num label="נסועה שנתית" unit='ק"מ' step={1000} value={p.kmPerYear} example={EX.p.kmPerYear} onChange={v => personal({ kmPerYear: v })} />
+            <Num label="תשואה חלופית על הכסף" unit="%" step={0.5} value={p.altReturnPct} example={EX.p.altReturnPct} onChange={v => personal({ altReturnPct: v })} hint="כמה הכסף שתקוע ברכב היה מרוויח בהשקעה (שנתי, נטו)" />
+            <Num label="תקופת ההשוואה" unit="שנים" min={1} max={7} value={p.horizonYears} example={EX.p.horizonYears} onChange={v => personal({ horizonYears: v === null ? null : Math.min(7, Math.max(1, Math.round(v))) })} />
           </Section>
 
           <Section title="החזרים שאתה מקבל היום על הרכב" icon={<ReceiptText size={18} />}>
-            <Num label="אחזקת רכב (ברוטו לחודש)" unit="₪" value={r.maintenanceGross} onChange={v => reimb({ maintenanceGross: v })} hint="הרכיב בתלוש — נכנס לשכר החייב במס" />
-            <Num label="דמי נסיעות (ברוטו לחודש)" unit="₪" value={r.travelGross} onChange={v => reimb({ travelGross: v })} />
-            <Num label="הפרשות מעסיק על אחזקת רכב" unit="%" step={0.5} value={r.employerDepositsPct} onChange={v => reimb({ employerDepositsPct: v })} hint="פנסיה / קרן השתלמות אם המעסיק מפריש גם על הרכיב הזה. בדרך כלל 0" />
+            <Num label="אחזקת רכב (ברוטו לחודש)" unit="₪" value={r.maintenanceGross} example={EX.r.maintenanceGross} onChange={v => reimb({ maintenanceGross: v })} hint="הרכיב בתלוש — נכנס לשכר החייב במס" />
+            <Num label="דמי נסיעות (ברוטו לחודש)" unit="₪" value={r.travelGross} example={EX.r.travelGross} onChange={v => reimb({ travelGross: v })} />
+            <Num label="הפרשות מעסיק על אחזקת רכב" unit="%" step={0.5} value={r.employerDepositsPct} example={EX.r.employerDepositsPct} onChange={v => reimb({ employerDepositsPct: v })} hint="פנסיה / קרן השתלמות אם המעסיק מפריש גם על הרכיב הזה. בדרך כלל 0" />
             <p className="hint wide">ההחזרים נחשבים כהכנסה נטו בחלופות הרכב הפרטי, ואובדים במעבר לרכב חברה.</p>
           </Section>
 
           <Section title="רכב חברה" icon={<Briefcase size={18} />} accent="var(--series-1)">
-            <Num label="מחיר מחירון" unit="₪" step={1000} value={c.listPrice} onChange={v => company({ listPrice: v })} />
-            <Choice label="סוג הנעה" value={c.propulsion} options={PROPULSION} onChange={v => company({ propulsion: v, ...(v === 'electric' ? { kmPerUnit: 6, energyPrice: 0.65 } : c.propulsion === 'electric' ? { kmPerUnit: 16, energyPrice: 7.3 } : {}) })} />
-            <Num label="השתתפות עצמית חודשית" unit="₪" value={c.participation} onChange={v => company({ participation: v })} hint="מנוכה מהנטו בתלוש" />
+            <Num label="מחיר מחירון" unit="₪" step={1000} value={c.listPrice} example={EX.c.listPrice} onChange={v => company({ listPrice: v })} />
+            <Choice label="סוג הנעה" value={c.propulsion} options={PROPULSION} onChange={v => company({ propulsion: v })} />
+            <Num label="השתתפות עצמית חודשית" unit="₪" value={c.participation} example={EX.c.participation} onChange={v => company({ participation: v })} hint="מנוכה מהנטו בתלוש" />
             <Toggle label="המעסיק מגלם את המס על שווי השימוש" checked={c.employerGrossUp} onChange={v => company({ employerGrossUp: v })} />
             <Choice
               label="דלק / טעינה"
@@ -147,15 +165,15 @@ export default function App() {
               ]}
               onChange={v => company({ fuelMode: v })}
             />
-            {c.fuelMode === 'cap' && <Num label="תקרת דלק חודשית" unit="₪" value={c.fuelCap} onChange={v => company({ fuelCap: v })} />}
+            {c.fuelMode === 'cap' && <Num label="תקרת דלק חודשית" unit="₪" value={c.fuelCap} example={EX.c.fuelCap} onChange={v => company({ fuelCap: v })} />}
             {c.fuelMode !== 'none' && (
-              <Num label="שווי דלק בתלוש" unit="₪" value={c.fuelBenefitGross} onChange={v => company({ fuelBenefitGross: v })} hint="אם המעסיק זוקף שווי על הדלק. אם לא — 0" />
+              <Num label="שווי דלק בתלוש" unit="₪" value={c.fuelBenefitGross} example={EX.c.fuelBenefitGross} onChange={v => company({ fuelBenefitGross: v })} hint="אם המעסיק זוקף שווי על הדלק. אם לא — 0" />
             )}
-            <Num label={electric ? 'יעילות (ק"מ לקוט"ש)' : 'צריכה (ק"מ לליטר)'} step={0.5} value={c.kmPerUnit} onChange={v => company({ kmPerUnit: v })} />
-            <Num label={electric ? 'מחיר לקוט"ש' : 'מחיר לליטר'} unit="₪" step={0.05} value={c.energyPrice} onChange={v => company({ energyPrice: v })} />
-            <Num label='מכסת ק"מ שנתית' unit='ק"מ' step={1000} value={c.allowedKmPerYear} onChange={v => company({ allowedKmPerYear: v })} />
-            <Num label='חיוב לק"מ עודף' unit="₪" step={0.05} value={c.extraKmPrice} onChange={v => company({ extraKmPrice: v })} />
-            <Num label="הוצאות נוספות מהכיס" unit="₪ לחודש" value={c.otherMonthly} onChange={v => company({ otherMonthly: v })} hint="חניה, כבישי אגרה וכו׳" />
+            <Num label={electric ? 'יעילות (ק"מ לקוט"ש)' : 'צריכה (ק"מ לליטר)'} step={0.5} value={c.kmPerUnit} example={electric ? 6 : EX.c.kmPerUnit} onChange={v => company({ kmPerUnit: v })} />
+            <Num label={electric ? 'מחיר לקוט"ש' : 'מחיר לליטר'} unit="₪" step={0.05} value={c.energyPrice} example={electric ? 0.65 : EX.c.energyPrice} onChange={v => company({ energyPrice: v })} />
+            <Num label='מכסת ק"מ שנתית' unit='ק"מ' step={1000} value={c.allowedKmPerYear} example={EX.c.allowedKmPerYear} onChange={v => company({ allowedKmPerYear: v })} />
+            <Num label='חיוב לק"מ עודף' unit="₪" step={0.05} value={c.extraKmPrice} example={EX.c.extraKmPrice} onChange={v => company({ extraKmPrice: v })} />
+            <Num label="הוצאות נוספות מהכיס" unit="₪ לחודש" value={c.otherMonthly} example={EX.c.otherMonthly} onChange={v => company({ otherMonthly: v })} hint="חניה, כבישי אגרה וכו׳" />
           </Section>
 
           <Section
@@ -166,15 +184,15 @@ export default function App() {
           >
             {e.enabled && (
               <>
-                <Num label="שווי נוכחי (מחירון יד שנייה)" unit="₪" step={1000} value={e.value} onChange={v => existing({ value: v })} />
-                <Num label="ירידת ערך שנתית" unit="%" value={e.depreciationPct} onChange={v => existing({ depreciationPct: v })} hint="רכב בן 3–7 שנים: בדרך כלל 8%–12%" />
-                <Num label="ביטוח חובה + מקיף" unit="₪ לשנה" step={100} value={e.insuranceYear} onChange={v => existing({ insuranceYear: v })} />
-                <Num label="אגרת רישוי + טסט" unit="₪ לשנה" step={100} value={e.licenseYear} onChange={v => existing({ licenseYear: v })} />
-                <Num label="טיפולים ותיקונים" unit="₪ לשנה" step={100} value={e.maintenanceYear} onChange={v => existing({ maintenanceYear: v })} />
-                <Num label="התייקרות טיפולים בשנה" unit="%" value={e.maintenanceGrowthPct} onChange={v => existing({ maintenanceGrowthPct: v })} />
-                <Num label='צריכה (ק"מ לליטר)' step={0.5} value={e.kmPerUnit} onChange={v => existing({ kmPerUnit: v })} />
-                <Num label="מחיר לליטר" unit="₪" step={0.05} value={e.energyPrice} onChange={v => existing({ energyPrice: v })} />
-                <Num label="הוצאות נוספות" unit="₪ לחודש" value={e.otherMonthly} onChange={v => existing({ otherMonthly: v })} hint="חניה, כבישי אגרה וכו׳" />
+                <Num label="שווי נוכחי (מחירון יד שנייה)" unit="₪" step={1000} value={e.value} example={EX.e.value} onChange={v => existing({ value: v })} />
+                <Num label="ירידת ערך שנתית" unit="%" value={e.depreciationPct} example={EX.e.depreciationPct} onChange={v => existing({ depreciationPct: v })} hint="רכב בן 3–7 שנים: בדרך כלל 8%–12%" />
+                <Num label="ביטוח חובה + מקיף" unit="₪ לשנה" step={100} value={e.insuranceYear} example={EX.e.insuranceYear} onChange={v => existing({ insuranceYear: v })} />
+                <Num label="אגרת רישוי + טסט" unit="₪ לשנה" step={100} value={e.licenseYear} example={EX.e.licenseYear} onChange={v => existing({ licenseYear: v })} />
+                <Num label="טיפולים ותיקונים" unit="₪ לשנה" step={100} value={e.maintenanceYear} example={EX.e.maintenanceYear} onChange={v => existing({ maintenanceYear: v })} />
+                <Num label="התייקרות טיפולים בשנה" unit="%" value={e.maintenanceGrowthPct} example={EX.e.maintenanceGrowthPct} onChange={v => existing({ maintenanceGrowthPct: v })} />
+                <Num label='צריכה (ק"מ לליטר)' step={0.5} value={e.kmPerUnit} example={EX.e.kmPerUnit} onChange={v => existing({ kmPerUnit: v })} />
+                <Num label="מחיר לליטר" unit="₪" step={0.05} value={e.energyPrice} example={EX.e.energyPrice} onChange={v => existing({ energyPrice: v })} />
+                <Num label="הוצאות נוספות" unit="₪ לחודש" value={e.otherMonthly} example={EX.e.otherMonthly} onChange={v => existing({ otherMonthly: v })} hint="חניה, כבישי אגרה וכו׳" />
                 <Toggle
                   label="אשאיר את הרכב גם אם אקח רכב חברה"
                   checked={e.keepWithCompanyCar}
@@ -193,9 +211,9 @@ export default function App() {
           >
             {u.enabled && (
               <>
-                <Num label="מחיר הרכב" unit="₪" step={1000} value={u.value} onChange={v => used({ value: v })} />
-                <Num label="עלויות קנייה חד-פעמיות" unit="₪" step={100} value={u.purchaseCosts} onChange={v => used({ purchaseCosts: v })} hint="העברת בעלות, בדיקה במכון, תיקונים ראשונים" />
-                <Num label="ירידת ערך שנתית" unit="%" value={u.depreciationPct} onChange={v => used({ depreciationPct: v })} />
+                <Num label="מחיר הרכב" unit="₪" step={1000} value={u.value} example={EX.u.value} onChange={v => used({ value: v })} />
+                <Num label="עלויות קנייה חד-פעמיות" unit="₪" step={100} value={u.purchaseCosts} example={EX.u.purchaseCosts} onChange={v => used({ purchaseCosts: v })} hint="העברת בעלות, בדיקה במכון, תיקונים ראשונים" />
+                <Num label="ירידת ערך שנתית" unit="%" value={u.depreciationPct} example={EX.u.depreciationPct} onChange={v => used({ depreciationPct: v })} />
                 <Choice
                   label="מימון"
                   value={u.financing}
@@ -207,33 +225,33 @@ export default function App() {
                 />
                 {u.financing === 'loan' && (
                   <>
-                    <Num label="הון עצמי" unit="₪" step={1000} value={u.downPayment} onChange={v => used({ downPayment: v })} />
-                    <Num label="ריבית שנתית" unit="%" step={0.1} value={u.loanRatePct} onChange={v => used({ loanRatePct: v })} />
-                    <Num label="תקופת הלוואה" unit="חודשים" step={12} value={u.loanMonths} onChange={v => used({ loanMonths: v })} />
+                    <Num label="הון עצמי" unit="₪" step={1000} value={u.downPayment} example={EX.u.downPayment} onChange={v => used({ downPayment: v })} />
+                    <Num label="ריבית שנתית" unit="%" step={0.1} value={u.loanRatePct} example={EX.u.loanRatePct} onChange={v => used({ loanRatePct: v })} />
+                    <Num label="תקופת הלוואה" unit="חודשים" step={12} value={u.loanMonths} example={EX.u.loanMonths} onChange={v => used({ loanMonths: v })} />
                   </>
                 )}
-                <Num label="ביטוח חובה + מקיף" unit="₪ לשנה" step={100} value={u.insuranceYear} onChange={v => used({ insuranceYear: v })} />
-                <Num label="אגרת רישוי + טסט" unit="₪ לשנה" step={100} value={u.licenseYear} onChange={v => used({ licenseYear: v })} />
-                <Num label="טיפולים ותיקונים" unit="₪ לשנה" step={100} value={u.maintenanceYear} onChange={v => used({ maintenanceYear: v })} />
-                <Num label="התייקרות טיפולים בשנה" unit="%" value={u.maintenanceGrowthPct} onChange={v => used({ maintenanceGrowthPct: v })} />
-                <Num label='צריכה (ק"מ לליטר)' step={0.5} value={u.kmPerUnit} onChange={v => used({ kmPerUnit: v })} />
-                <Num label="מחיר לליטר" unit="₪" step={0.05} value={u.energyPrice} onChange={v => used({ energyPrice: v })} />
-                <Num label="הוצאות נוספות" unit="₪ לחודש" value={u.otherMonthly} onChange={v => used({ otherMonthly: v })} />
+                <Num label="ביטוח חובה + מקיף" unit="₪ לשנה" step={100} value={u.insuranceYear} example={EX.u.insuranceYear} onChange={v => used({ insuranceYear: v })} />
+                <Num label="אגרת רישוי + טסט" unit="₪ לשנה" step={100} value={u.licenseYear} example={EX.u.licenseYear} onChange={v => used({ licenseYear: v })} />
+                <Num label="טיפולים ותיקונים" unit="₪ לשנה" step={100} value={u.maintenanceYear} example={EX.u.maintenanceYear} onChange={v => used({ maintenanceYear: v })} />
+                <Num label="התייקרות טיפולים בשנה" unit="%" value={u.maintenanceGrowthPct} example={EX.u.maintenanceGrowthPct} onChange={v => used({ maintenanceGrowthPct: v })} />
+                <Num label='צריכה (ק"מ לליטר)' step={0.5} value={u.kmPerUnit} example={EX.u.kmPerUnit} onChange={v => used({ kmPerUnit: v })} />
+                <Num label="מחיר לליטר" unit="₪" step={0.05} value={u.energyPrice} example={EX.u.energyPrice} onChange={v => used({ energyPrice: v })} />
+                <Num label="הוצאות נוספות" unit="₪ לחודש" value={u.otherMonthly} example={EX.u.otherMonthly} onChange={v => used({ otherMonthly: v })} />
               </>
             )}
           </Section>
 
-          <button className="btn ghost reset" onClick={() => setInputs(structuredClone(DEFAULT_INPUTS))}>
+          <button className="btn ghost reset" onClick={() => setInputs(structuredClone(EMPTY_DRAFT))}>
             <RotateCcw size={16} aria-hidden /> איפוס כל השדות
           </button>
         </div>
 
         <aside className="side">
-          <Results result={result} years={p.horizonYears} />
+          <Results result={result} years={p.horizonYears ?? 0} missing={missing} />
         </aside>
       </main>
 
-      <MobileBar result={result} />
+      <MobileBar result={result} missing={missing.length} />
 
       <footer className="foot">
         <p>

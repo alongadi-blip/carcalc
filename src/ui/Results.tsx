@@ -1,9 +1,25 @@
-import { Trophy } from 'lucide-react'
+import { ClipboardList, Trophy } from 'lucide-react'
 import type { Result } from '../engine/model'
 import { money, monthsLabel } from '../format'
 import { CostChart, SERIES_VAR } from './CostChart'
 
-export function Results({ result, years }: { result: Result; years: number }) {
+export function Results({ result, years, missing }: { result: Result; years: number; missing: string[] }) {
+  if (missing.length)
+    return (
+      <div className="results" id="results">
+        <div className="card empty">
+          <ClipboardList size={28} aria-hidden />
+          <h3>ממלאים את השדות — והתוצאה מופיעה כאן</h3>
+          <p className="muted small">שדות חובה שעוד חסרים:</p>
+          <ul>
+            {missing.map(m => (
+              <li key={m}>{m}</li>
+            ))}
+          </ul>
+          <p className="muted small">שדה ריק אחר נחשב כ-0. הערכים באפור הם דוגמה בלבד.</p>
+        </div>
+      </div>
+    )
   const sorted = [...result.scenarios].sort((a, b) => a.total - b.total)
   const best = sorted[0]
   const company = result.scenarios[0]

@@ -1,22 +1,26 @@
 import { useEffect, useId, useState, type CSSProperties, type ReactNode } from 'react'
 
-interface NumProps {
+export interface NumProps {
   label: string
-  value: number
-  onChange: (v: number) => void
+  value: number | null
+  onChange: (v: number | null) => void
   unit?: string
   hint?: string
+  /** Shown greyed out while the field is empty. */
+  example?: number
   step?: number
   min?: number
   max?: number
 }
 
-/** Numeric input that tolerates empty / partial text while typing. */
-export function Num({ label, value, onChange, unit, hint, step = 1, min = 0, max }: NumProps) {
+const toText = (v: number | null) => (v === null ? '' : String(v))
+
+/** Numeric input; an empty field is `null`, partial text is tolerated while typing. */
+export function Num({ label, value, onChange, unit, hint, example, step = 1, min = 0, max }: NumProps) {
   const id = useId()
-  const [text, setText] = useState(String(value))
+  const [text, setText] = useState(toText(value))
   useEffect(() => {
-    if (Number(text) !== value) setText(String(value))
+    if ((text === '' ? null : Number(text)) !== value) setText(toText(value))
   }, [value])
   return (
     <div className="field">
@@ -31,16 +35,18 @@ export function Num({ label, value, onChange, unit, hint, step = 1, min = 0, max
           min={min}
           max={max}
           value={text}
+          placeholder={example !== undefined ? `לדוגמה ${example.toLocaleString('he-IL')}` : undefined}
           aria-describedby={hint ? `${id}-hint` : undefined}
           onChange={e => {
-            setText(e.target.value)
-            const n = Number(e.target.value)
-            if (e.target.value !== '' && Number.isFinite(n)) onChange(n)
+            const t = e.target.value
+            setText(t)
+            if (t === '') onChange(null)
+            else if (Number.isFinite(Number(t))) onChange(Number(t))
           }}
           onBlur={() => {
-            if (text === '' || !Number.isFinite(Number(text))) {
-              setText('0')
-              onChange(0)
+            if (text !== '' && !Number.isFinite(Number(text))) {
+              setText('')
+              onChange(null)
             }
           }}
         />
